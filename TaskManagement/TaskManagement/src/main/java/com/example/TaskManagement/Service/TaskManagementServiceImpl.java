@@ -2,9 +2,8 @@ package com.example.TaskManagement.Service;
 
 import com.example.TaskManagement.Entities.TaskDetails;
 import com.example.TaskManagement.Entities.UserCredentials;
-import com.example.TaskManagement.Enum.Priority;
 import com.example.TaskManagement.Enum.Status;
-import com.example.TaskManagement.Models.TaskManagementModel;
+import com.example.TaskManagement.Models.*;
 import com.example.TaskManagement.Repositories.TaskDetailsRepository;
 import com.example.TaskManagement.Repositories.UserCredentialsRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,61 +20,36 @@ public class TaskManagementServiceImpl implements TaskManagementService{
     private TaskDetailsRepository taskDetailsRepository;
     @Autowired
     private UserCredentialsRepository userCredentialsRepository;
+    @Autowired
+    private SecurityService securityService;
     @Override
-    public ResponseEntity<?> checkTaskExistOrNot(TaskManagementModel taskManagementModel, String chooseTask) {
-        TaskDetails taskDetails = taskDetailsRepository.findTaskById(taskManagementModel.getTaskId());
-        if (taskDetails == null) {
-            return ResponseEntity.badRequest().body("Task is not exist in the system");
-        }
-        UserCredentials userCredentials = null;
-        if(chooseTask.equals("assignTask")){
-            userCredentials = userCredentialsRepository.findUserById(taskManagementModel.getUserId());
-            if(userCredentials == null) {
-                return ResponseEntity.badRequest().body("User is not exist in the system");
-            }
-        }
-
-        ResponseEntity<?> responseEntity = null;
-        switch (chooseTask){
-            case "updateTask" -> {
-                updateTasks(taskManagementModel, taskDetails);
-                responseEntity = ResponseEntity.ok().body("Task has updated successfully");
-            }
-            case "deleteTasks" -> {
-                deleteTasks(taskDetails);
-                responseEntity = ResponseEntity.ok().body("Task has deleted successfully");
-            }
-            case "assignTask" -> {
-                assignTasksToUsers(taskDetails, userCredentials);
-                responseEntity = ResponseEntity.ok().body("Task has assigned to the user successfully");
-            }
-            case "updateDueDates" -> {
-                updateDueDates(taskManagementModel, taskDetails);
-                responseEntity = ResponseEntity.ok().body("Estimation date updated successfully");
-            }
-            case "updateTaskStatus" -> {
-                updateTaskStatus(taskManagementModel, taskDetails);
-                responseEntity = ResponseEntity.ok().body("Task status updated successfully");
-            }
-        }
-        return responseEntity;
+    public TaskDetails checkTaskExistOrNot(Long taskId) {
+        return taskDetailsRepository.findTaskById(taskId);
     }
     @Override
-    public ResponseEntity<?> createTasks(TaskManagementModel taskManagementModel) {
+    public UserCredentials checkUserExistOrNot(Long userId) {
+        return userCredentialsRepository.findUserById(userId);
+    }
+    @Override
+    public ResponseEntity<?> createTasks(CreateNewTaskModel createNewTaskModel, UserCredentials userCredentials) {
         TaskDetails taskDetails = new TaskDetails();
-        taskDetails.setTaskName(taskManagementModel.getTaskName());
-        taskDetails.setTaskDescription(taskManagementModel.getTaskDescription());
-        taskDetails.setPriority(Priority.valueOf(taskManagementModel.getPriority().toUpperCase()));
-        taskDetails.setStatus(Status.OPEN);
+        taskDetails.setTaskName(createNewTaskModel.getTaskName());
+        taskDetails.setTaskDescription(createNewTaskModel.getTaskDescription());
+        taskDetails.setPriority(createNewTaskModel.getPriority());
+        taskDetails.setUserCredentials(userCredentials);
+        if(userCredentials == null){
+            taskDetails.setStatus(Status.OPEN);
+        }else{
+            taskDetails.setStatus(Status.ASSIGNED);
+        }
         taskDetailsRepository.save(taskDetails);
         return ResponseEntity.ok().body("Task has created successfully");
     }
     @Override
-    public TaskDetails updateTasks(TaskManagementModel taskManagementModel, TaskDetails taskDetails) {
-        taskDetails.setTaskName(taskManagementModel.getTaskName());
-        taskDetails.setTaskDescription(taskManagementModel.getTaskDescription());
-        taskDetails.setPriority(Priority.valueOf(taskManagementModel.getPriority().toUpperCase()));
-        taskDetails.setStatus(Status.valueOf(taskManagementModel.getStatus().toUpperCase()));
+    public TaskDetails updateTasks(UpdateTaskModel updateTaskModel, TaskDetails taskDetails) {
+        taskDetails.setTaskName(updateTaskModel.getTaskName());
+        taskDetails.setTaskDescription(updateTaskModel.getTaskDescription());
+        taskDetails.setPriority(updateTaskModel.getPriority());
         return taskDetailsRepository.save(taskDetails);
     }
     @Override
@@ -91,27 +65,33 @@ public class TaskManagementServiceImpl implements TaskManagementService{
         return taskDetailsRepository.save(taskDetails);
     }
     @Override
-    public TaskDetails updateDueDates(TaskManagementModel taskManagementModel, TaskDetails taskDetails) {
+    public TaskDetails updateDueDates(UpdateDueDatesModel updateDueDatesModel, TaskDetails taskDetails) {
         if(taskDetails.getStartDate() == null){
             taskDetails.setStartDate(LocalDate.now());
         }
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        taskDetails.setEndDate(LocalDate.parse(taskManagementModel.getEndDate(), formatter));
+        taskDetails.setEndDate(LocalDate.parse(updateDueDatesModel.getEndDate(), formatter));
         if(taskDetails.getStatus() == Status.ASSIGNED){
             taskDetails.setStatus(Status.IN_PROGRESS);
         }
         return taskDetailsRepository.save(taskDetails);
     }
     @Override
-    public TaskDetails updateTaskStatus(TaskManagementModel taskManagementModel, TaskDetails taskDetails) {
-        taskDetails.setStatus(Status.valueOf(taskManagementModel.getStatus().toUpperCase()));
+    public TaskDetails updateTaskStatus(UpdateTaskStatusModel updateTaskStatusModel, TaskDetails taskDetails) {
+        taskDetails.setStatus(updateTaskStatusModel.getStatus());
+        if(updateTaskStatusModel.getStatus() == Status.CLOSED){
+            taskDetails.setEndDate(LocalDate.now());
+        }
         return taskDetailsRepository.save(taskDetails);
     }
     @Override
-    public ResponseEntity<?> taskList(TaskManagementModel taskManagementModel) {
-        UserCredentials userCredentials = userCredentialsRepository.findUserById(taskManagementModel.getUserId());
+    public ResponseEntity<?> taskList(Long userId) {
+        UserCredentials userCredentials = userCredentialsRepository.findUserById(userId);
         if(userCredentials == null) {
             return ResponseEntity.badRequest().body("User is not exist in the system");
+        }
+        if(!securityService.isLoggedUser(userId)){
+            return ResponseEntity.badRequest().body("You don't have access.");
         }
         List<TaskDetails> taskDetails;
         if(userCredentials.getUserRole().getRole().equals("ADMIN")){
